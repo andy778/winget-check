@@ -47,6 +47,18 @@ The `--repo` flag accepts the various forms Scorecard understands, for example:
 - `owner/repo`
 - a trailing `.git` or `/` is tolerated
 
+Add `--debug` to print the full code-search query and request URL to stderr
+before the request is made:
+
+```bash
+go run main.go --repo=github.com/notepad-plus-plus/notepad-plus-plus --debug
+```
+
+```
+debug: query: repo:microsoft/winget-pkgs "github.com/notepad-plus-plus/notepad-plus-plus"
+debug: url:   https://api.github.com/search/code?q=repo%3Amicrosoft%2Fwinget-pkgs+%22github.com%2Fnotepad-plus-plus%2Fnotepad-plus-plus%22
+```
+
 ### Build a binary
 
 ```bash
@@ -69,8 +81,15 @@ A package that exists in winget:
 repo:        notepad-plus-plus/notepad-plus-plus
 query time:  412ms
 manifests:   37 match(es)
+version:     8.9.6 (highest of 37 manifest match(es))
+manifest:    manifests/n/Notepad++/Notepad++/8.9.6/Notepad++.Notepad++.installer.yaml
 result:      FOUND in winget as "Notepad++.Notepad++"
 ```
+
+The `version:` line is the highest version parsed from the matched manifest
+paths, and `manifest:` is that version's manifest. Note GitHub code search
+returns up to 100 results per query, so on packages with a very large number of
+manifests the "highest" is taken from the first 100 matches.
 
 A package that is not in winget:
 

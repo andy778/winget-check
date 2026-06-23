@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,8 +48,61 @@ func packageIDFromPath(p string) string {
 	return ""
 }
 
+// versionFromPath returns the version directory of a manifest path, i.e. the
+// folder immediately containing the manifest file:
+//
+//	manifests/n/Notepad++/Notepad++/8.9/Notepad++.Notepad++.installer.yaml -> 8.9
+func versionFromPath(p string) string {
+	parts := strings.Split(p, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-2]
+}
+
+// compareVersions does a best-effort comparison of two winget version strings.
+// It splits on '.' and compares components numerically when both are numeric,
+// otherwise lexicographically. Missing trailing components are treated as 0.
+// Returns -1 if a < b, 0 if equal, 1 if a > b.
+func compareVersions(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	n := len(as)
+	if len(bs) > n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		av, bv := "0", "0"
+		if i < len(as) {
+			av = as[i]
+		}
+		if i < len(bs) {
+			bv = bs[i]
+		}
+		ai, aerr := strconv.Atoi(av)
+		bi, berr := strconv.Atoi(bv)
+		if aerr == nil && berr == nil {
+			if ai != bi {
+				if ai < bi {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		if av != bv {
+			if av < bv {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
 func main() {
 	repoFlag := flag.String("repo", "", "repository to check, e.g. github.com/owner/repo")
+	debugFlag := flag.Bool("debug", false, "print the search query and request URL to stderr")
 	flag.Parse()
 
 	if *repoFlag == "" {
@@ -63,7 +117,12 @@ func main() {
 
 	repo := normalizeRepo(*repoFlag)
 	query := fmt.Sprintf(`repo:microsoft/winget-pkgs "github.com/%s"`, repo)
-	apiURL := "https://api.github.com/search/code?q=" + url.QueryEscape(query)
+	apiURL := "https://api.github.com/search/code?q=" + url.QueryEscape(query) + "&per_page=100"
+
+	if *debugFlag {
+		fmt.Fprintf(os.Stderr, "debug: query: %s\n", query)
+		fmt.Fprintf(os.Stderr, "debug: url:   %s\n", apiURL)
+	}
 
 	req, _ := http.NewRequest(http.MethodGet, apiURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -100,9 +159,26 @@ func main() {
 		return
 	}
 
-	pkgID := ""
-	if len(result.Items) > 0 {
-		pkgID = packageIDFromPath(result.Items[0].Path)
+	// Pick the manifest with the highest version among the matches. Code search
+	// returns matches in relevance order, not version order, so scan them all.
+	bestPath, bestVer := "", ""
+	for _, it := range result.Items {
+		v := versionFromPath(it.Path)
+		if v == "" {
+			continue
+		}
+		if bestVer == "" || compareVersions(v, bestVer) > 0 {
+			bestPath, bestVer = it.Path, v
+		}
 	}
+	if bestPath == "" && len(result.Items) > 0 {
+		bestPath = result.Items[0].Path // fall back if no version could be parsed
+	}
+
+	pkgID := packageIDFromPath(bestPath)
+	if bestVer != "" {
+		fmt.Printf("version:     %s (highest of %d manifest match(es))\n", bestVer, len(result.Items))
+	}
+	fmt.Printf("manifest:    %s\n", bestPath)
 	fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
 }

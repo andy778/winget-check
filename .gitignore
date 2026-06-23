@@ -1,0 +1,4 @@
+# Compiled binaries
+/winget-check
+/winget-check.exe
+*.exe
