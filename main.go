@@ -15,9 +15,10 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	goversion "github.com/hashicorp/go-version"
 )
 
 type codeSearchResult struct {
@@ -58,46 +59,6 @@ func versionFromPath(p string) string {
 		return ""
 	}
 	return parts[len(parts)-2]
-}
-
-// compareVersions does a best-effort comparison of two winget version strings.
-// It splits on '.' and compares components numerically when both are numeric,
-// otherwise lexicographically. Missing trailing components are treated as 0.
-// Returns -1 if a < b, 0 if equal, 1 if a > b.
-func compareVersions(a, b string) int {
-	as := strings.Split(a, ".")
-	bs := strings.Split(b, ".")
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
-		av, bv := "0", "0"
-		if i < len(as) {
-			av = as[i]
-		}
-		if i < len(bs) {
-			bv = bs[i]
-		}
-		ai, aerr := strconv.Atoi(av)
-		bi, berr := strconv.Atoi(bv)
-		if aerr == nil && berr == nil {
-			if ai != bi {
-				if ai < bi {
-					return -1
-				}
-				return 1
-			}
-			continue
-		}
-		if av != bv {
-			if av < bv {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
 }
 
 func main() {
@@ -161,14 +122,15 @@ func main() {
 
 	// Pick the manifest with the highest version among the matches. Code search
 	// returns matches in relevance order, not version order, so scan them all.
-	bestPath, bestVer := "", ""
+	bestPath := ""
+	var bestVer *goversion.Version
 	for _, it := range result.Items {
-		v := versionFromPath(it.Path)
-		if v == "" {
-			continue
+		v, err := goversion.NewVersion(versionFromPath(it.Path))
+		if err != nil {
+			continue // unparseable version string, skip
 		}
-		if bestVer == "" || compareVersions(v, bestVer) > 0 {
-			bestPath, bestVer = it.Path, v
+		if bestVer == nil || v.GreaterThan(bestVer) {
+			bestVer, bestPath = v, it.Path
 		}
 	}
 	if bestPath == "" && len(result.Items) > 0 {
@@ -176,8 +138,8 @@ func main() {
 	}
 
 	pkgID := packageIDFromPath(bestPath)
-	if bestVer != "" {
-		fmt.Printf("version:     %s (highest of %d manifest match(es))\n", bestVer, len(result.Items))
+	if bestVer != nil {
+		fmt.Printf("version:     %s (highest of %d manifest match(es))\n", bestVer.Original(), len(result.Items))
 	}
 	fmt.Printf("manifest:    %s\n", bestPath)
 	fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
