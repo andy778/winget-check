@@ -104,6 +104,15 @@ manifests:   0 match(es)
 result:      NOT FOUND in winget
 ```
 
+## Releases
+
+Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers a
+[release workflow](.github/workflows/release.yml) that cross-compiles binaries
+for Linux, macOS (amd64/arm64) and Windows, exports an SBOM
+(`winget-check.spdx.json`) from GitHub's native
+[dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository),
+and publishes everything together as a GitHub Release.
+
 ## Exit codes
 
 | Code | Meaning                                                        |
