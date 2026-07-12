@@ -1,6 +1,7 @@
 # Builds cross-platform binaries and publishes a GitHub Release with an SBOM
-# attached, so OpenSSF Scorecard's SBOM check finds it as a release artifact
-# (the check's preferred, full-credit location).
+# attached (exported from GitHub's native dependency graph), so OpenSSF
+# Scorecard's SBOM check finds it as a release artifact (the check's
+# preferred, full-credit location).
 name: Release
 
 on:
@@ -75,12 +76,12 @@ jobs:
           pattern: binary-*
           merge-multiple: true
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          path: .
-          format: spdx-json
-          output-file: winget-check.spdx.json
+      - name: Generate SBOM via GitHub's dependency graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "/repos/${{ github.repository }}/dependency-graph/sbom" \
+            --jq '.sbom' > winget-check.spdx.json
 
       - name: Create GitHub release
         env:
