@@ -81,15 +81,19 @@ A package that exists in winget:
 repo:        notepad-plus-plus/notepad-plus-plus
 query time:  412ms
 manifests:   37 match(es)
-version:     8.9.6 (highest of 37 manifest match(es))
+version:     8.9.6 (highest of 37 of 37 manifest match(es) scanned)
 manifest:    manifests/n/Notepad++/Notepad++/8.9.6/Notepad++.Notepad++.installer.yaml
 result:      FOUND in winget as "Notepad++.Notepad++"
 ```
 
-The `version:` line is the highest version parsed from the matched manifest
-paths, and `manifest:` is that version's manifest. Note GitHub code search
-returns up to 100 results per query, so on packages with a very large number of
-manifests the "highest" is taken from the first 100 matches.
+The `version:` line is the highest version parsed from the manifests that
+belong to the same winget package ID as the most relevant match, and
+`manifest:` is that version's manifest. Note GitHub code search returns up to
+100 results per query, so on packages with a very large number of manifests
+the "highest" is only scanned from the first 100 matches - the two numbers in
+the `version:` line show how many of the total matches were actually scanned.
+If none of the scanned manifests have a parseable version, the line reads
+`version:     unknown (...)` instead.
 
 A package that is not in winget:
 

@@ -120,26 +120,34 @@ func main() {
 		return
 	}
 
-	// Pick the manifest with the highest version among the matches. Code search
-	// returns matches in relevance order, not version order, so scan them all.
-	bestPath := ""
+	// GitHub's code search has no path: qualifier here, so a match can be any
+	// file mentioning the repo URL, not necessarily a manifest. Anchor on the
+	// package ID of the most relevant hit, then scan only same-package
+	// manifests for the highest version - this also skips non-manifest matches,
+	// since their derived package ID won't match. Code search returns matches
+	// in relevance order, not version order, so scan them all.
+	bestPath := result.Items[0].Path
+	pkgID := packageIDFromPath(bestPath)
 	var bestVer *goversion.Version
-	for _, it := range result.Items {
-		v, err := goversion.NewVersion(versionFromPath(it.Path))
-		if err != nil {
-			continue // unparseable version string, skip
+	if pkgID != "" {
+		for _, it := range result.Items {
+			if packageIDFromPath(it.Path) != pkgID {
+				continue // manifest for a different (or no) package, skip
+			}
+			v, err := goversion.NewVersion(versionFromPath(it.Path))
+			if err != nil {
+				continue // unparseable version string, skip
+			}
+			if bestVer == nil || v.GreaterThan(bestVer) {
+				bestVer, bestPath = v, it.Path
+			}
 		}
-		if bestVer == nil || v.GreaterThan(bestVer) {
-			bestVer, bestPath = v, it.Path
-		}
-	}
-	if bestPath == "" && len(result.Items) > 0 {
-		bestPath = result.Items[0].Path // fall back if no version could be parsed
 	}
 
-	pkgID := packageIDFromPath(bestPath)
 	if bestVer != nil {
-		fmt.Printf("version:     %s (highest of %d manifest match(es))\n", bestVer.Original(), len(result.Items))
+		fmt.Printf("version:     %s (highest of %d of %d manifest match(es) scanned)\n", bestVer.Original(), len(result.Items), result.TotalCount)
+	} else {
+		fmt.Printf("version:     unknown (no parseable version among %d of %d manifest match(es) scanned)\n", len(result.Items), result.TotalCount)
 	}
 	fmt.Printf("manifest:    %s\n", bestPath)
 	fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
