@@ -63,6 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
@@ -83,11 +85,22 @@ jobs:
           gh api "/repos/${{ github.repository }}/dependency-graph/sbom" \
             --jq '.sbom' > winget-check.spdx.json
 
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/*
+            winget-check.spdx.json
+
+      - name: Stage attestation bundle for the release
+        run: cp "${{ steps.attest.outputs.bundle-path }}" winget-check.sigstore.json
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            dist/* winget-check.spdx.json \
+            dist/* winget-check.spdx.json winget-check.sigstore.json \
             --title "${{ github.ref_name }}" \
             --generate-notes
