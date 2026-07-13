@@ -1,7 +1,5 @@
 # winget-check
 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/andy778/winget-check/badge)](https://securityscorecards.dev/viewer/?uri=github.com/andy778/winget-check)
-
 This is a proof of concept, built to test whether "does a winget package exist
 for this repo" is worth proposing as a check/probe in
 [OpenSSF Scorecard](https://github.com/ossf/scorecard) itself, rather than a
@@ -109,6 +107,17 @@ query time:  255ms
 manifests:   0 match(es)
 result:      NOT FOUND in winget
 ```
+
+## Security scanning
+
+[OpenSSF Scorecard](.github/workflows/scorecard.yml) and
+[CodeQL](.github/workflows/codeql.yml) run on every push to `main` and on
+pull requests, but results aren't published to the public OpenSSF dataset
+(`publish_results: false`). Check them in this repo instead:
+
+- **Security tab** → [Code scanning alerts](../../security/code-scanning)
+- **Actions tab** → a `scorecard.yml` run's `results.sarif` artifact
+- Or run Scorecard yourself: `scorecard --repo=github.com/andy778/winget-check`
 
 ## Releases
 

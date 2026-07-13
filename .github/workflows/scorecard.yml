@@ -1,5 +1,6 @@
-# OpenSSF Scorecard analysis. Publishing the results is what makes the
-# Scorecard badge in the README render data for this repository.
+# OpenSSF Scorecard analysis. Results stay local to this repo (uploaded to
+# the Security tab and as a workflow artifact) instead of being published to
+# the public OpenSSF dataset/badge.
 name: Scorecard supply-chain security
 on:
   branch_protection_rule:
@@ -18,8 +19,6 @@ jobs:
     permissions:
       # Needed to upload the SARIF results to the code-scanning dashboard.
       security-events: write
-      # Needed to publish results and get a badge (publish_results: true).
-      id-token: write
 
     steps:
       - name: "Checkout code"
@@ -36,8 +35,10 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Publish results to the OpenSSF REST API so the README badge works.
-          publish_results: true
+          # Do not submit results to the public OpenSSF dataset/API. Results
+          # are still viewable via the Security tab and the workflow's SARIF
+          # artifact.
+          publish_results: false
 
       - name: "Upload artifact"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
