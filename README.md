@@ -111,7 +111,13 @@ Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers a
 for Linux, macOS (amd64/arm64) and Windows, exports an SBOM
 (`winget-check.spdx.json`) from GitHub's native
 [dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository),
-and publishes everything together as a GitHub Release.
+generates a [SLSA build provenance attestation](https://github.com/actions/attest-build-provenance)
+(`winget-check.sigstore.json`) covering the binaries and SBOM, and publishes
+everything together as a GitHub Release. Verify a release with:
+
+```bash
+gh attestation verify winget-check-linux-amd64 --owner andy778
+```
 
 ## Exit codes
 
