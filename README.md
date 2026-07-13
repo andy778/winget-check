@@ -2,6 +2,12 @@
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/andy778/winget-check/badge)](https://securityscorecards.dev/viewer/?uri=github.com/andy778/winget-check)
 
+This is a proof of concept, built to test whether "does a winget package exist
+for this repo" is worth proposing as a check/probe in
+[OpenSSF Scorecard](https://github.com/ossf/scorecard) itself, rather than a
+standalone tool. Its own Scorecard score and CI setup double as a testbed for
+that.
+
 A small command-line tool that takes a repository (the same `--repo` form
 [OpenSSF Scorecard](https://github.com/ossf/scorecard) accepts) and reports
 whether a [winget](https://github.com/microsoft/winget-pkgs) package referencing
