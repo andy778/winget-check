@@ -223,7 +223,13 @@ func main() {
 	}
 	token := os.Getenv("GITHUB_AUTH_TOKEN")
 	if token == "" {
-		fmt.Fprintln(os.Stderr, "error: GITHUB_AUTH_TOKEN is not set")
+		token = os.Getenv("GH_TOKEN")
+	}
+	if token == "" {
+		token = os.Getenv("GITHUB_TOKEN")
+	}
+	if token == "" {
+		fmt.Fprintln(os.Stderr, "error: GITHUB_AUTH_TOKEN, GH_TOKEN, or GITHUB_TOKEN is not set")
 		os.Exit(2)
 	}
 
