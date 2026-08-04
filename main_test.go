@@ -82,3 +82,23 @@ func TestVersionFromPath(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitize(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Notepad++", "notepad"},
+		{"notepad-plus-plus", "notepad"},
+		{"VSCode", "vscode"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := sanitize(tt.input)
+			if got != tt.expected {
+				t.Errorf("sanitize(%q) = %q; want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}

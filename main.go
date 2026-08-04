@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,12 @@ type codeSearchResult struct {
 	Items      []struct {
 		Path string `json:"path"`
 	} `json:"items"`
+}
+
+type contentItem struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Path string `json:"path"`
 }
 
 // normalizeRepo turns the various --repo forms scorecard accepts into "owner/repo".
@@ -59,6 +66,136 @@ func versionFromPath(p string) string {
 		return ""
 	}
 	return parts[len(parts)-2]
+}
+
+func sanitize(s string) string {
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "plus", "+")
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, ".", "")
+	s = strings.ReplaceAll(s, "+", "")
+	return s
+}
+
+func fetchContents(client *http.Client, token string, apiURL string) ([]contentItem, error) {
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "winget-check")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %s", resp.Status)
+	}
+
+	var items []contentItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func fallbackDirectLookup(client *http.Client, token string, repo string, debug bool) (pkgID string, highestVersion string, manifestPath string, found bool) {
+	parts := strings.Split(repo, "/")
+	if len(parts) < 2 {
+		return "", "", "", false
+	}
+	owner, repoName := parts[0], parts[1]
+	if len(owner) == 0 {
+		return "", "", "", false
+	}
+
+	letters := []string{
+		strings.ToLower(string(owner[0])),
+	}
+	if len(repoName) > 0 && strings.ToLower(string(repoName[0])) != letters[0] {
+		letters = append(letters, strings.ToLower(string(repoName[0])))
+	}
+
+	for _, letter := range letters {
+		pubURL := fmt.Sprintf("https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/%s", letter)
+		if debug {
+			fmt.Fprintf(os.Stderr, "debug: fallback checking publishers: %s\n", pubURL)
+		}
+		pubItems, err := fetchContents(client, token, pubURL)
+		if err != nil {
+			continue
+		}
+
+		cleanOwner := sanitize(owner)
+		cleanRepo := sanitize(repoName)
+
+		var matchedPubs []string
+		for _, item := range pubItems {
+			cleanItem := sanitize(item.Name)
+			if cleanItem == cleanOwner || cleanItem == cleanRepo || (len(cleanItem) > 2 && len(cleanOwner) > 2 && (strings.Contains(cleanItem, cleanOwner) || strings.Contains(cleanOwner, cleanItem))) {
+				matchedPubs = append(matchedPubs, item.Name)
+			}
+		}
+
+		for _, pubName := range matchedPubs {
+			appURL := fmt.Sprintf("https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/%s/%s", letter, url.PathEscape(pubName))
+			if debug {
+				fmt.Fprintf(os.Stderr, "debug: fallback checking apps: %s\n", appURL)
+			}
+			appItems, err := fetchContents(client, token, appURL)
+			if err != nil {
+				continue
+			}
+
+			for _, appItem := range appItems {
+				if appItem.Type != "dir" {
+					continue
+				}
+				cleanApp := sanitize(appItem.Name)
+				if cleanApp == cleanRepo || cleanApp == cleanOwner || strings.Contains(cleanApp, cleanRepo) || strings.Contains(cleanRepo, cleanApp) {
+					verURL := fmt.Sprintf("https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/%s/%s/%s", letter, url.PathEscape(pubName), url.PathEscape(appItem.Name))
+					if debug {
+						fmt.Fprintf(os.Stderr, "debug: fallback checking versions: %s\n", verURL)
+					}
+					verItems, err := fetchContents(client, token, verURL)
+					if err != nil {
+						continue
+					}
+
+					var bestVer *goversion.Version
+					var bestVerStr string
+					for _, verItem := range verItems {
+						if verItem.Type != "dir" {
+							continue
+						}
+						v, err := goversion.NewVersion(verItem.Name)
+						if err != nil {
+							continue
+						}
+						if bestVer == nil || v.GreaterThan(bestVer) {
+							bestVer = v
+							bestVerStr = verItem.Name
+						}
+					}
+
+					if bestVerStr != "" {
+						pkgID = fmt.Sprintf("%s.%s", pubName, appItem.Name)
+						highestVersion = bestVerStr
+						manifestPath = fmt.Sprintf("manifests/%s/%s/%s/%s", letter, pubName, appItem.Name, bestVerStr)
+						return pkgID, highestVersion, manifestPath, true
+					}
+				}
+			}
+		}
+	}
+
+	return "", "", "", false
 }
 
 func main() {
@@ -105,7 +242,8 @@ func main() {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "GitHub API returned %s (after %v)\n", resp.Status, elapsed)
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "GitHub API returned %s (after %v): %s\n", resp.Status, elapsed, string(body))
 		os.Exit(1)
 	}
 
@@ -120,27 +258,28 @@ func main() {
 	fmt.Printf("manifests:   %d match(es)\n", result.TotalCount)
 
 	if result.TotalCount == 0 {
+		pkgID, ver, path, found := fallbackDirectLookup(client, token, repo, *debugFlag)
+		if found {
+			fmt.Printf("version:     %s (via direct tree lookup)\n", ver)
+			fmt.Printf("manifest:    %s\n", path)
+			fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
+			return
+		}
 		fmt.Println("result:      NOT FOUND in winget")
 		return
 	}
 
-	// GitHub's code search has no path: qualifier here, so a match can be any
-	// file mentioning the repo URL, not necessarily a manifest. Anchor on the
-	// package ID of the most relevant hit, then scan only same-package
-	// manifests for the highest version - this also skips non-manifest matches,
-	// since their derived package ID won't match. Code search returns matches
-	// in relevance order, not version order, so scan them all.
 	bestPath := result.Items[0].Path
 	pkgID := packageIDFromPath(bestPath)
 	var bestVer *goversion.Version
 	if pkgID != "" {
 		for _, it := range result.Items {
 			if packageIDFromPath(it.Path) != pkgID {
-				continue // manifest for a different (or no) package, skip
+				continue
 			}
 			v, err := goversion.NewVersion(versionFromPath(it.Path))
 			if err != nil {
-				continue // unparseable version string, skip
+				continue
 			}
 			if bestVer == nil || v.GreaterThan(bestVer) {
 				bestVer, bestPath = v, it.Path
