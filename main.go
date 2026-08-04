@@ -85,7 +85,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "debug: url:   %s\n", apiURL)
 	}
 
-	req, _ := http.NewRequest(http.MethodGet, apiURL, nil)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create request: %v\n", err)
+		os.Exit(1)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "winget-check")

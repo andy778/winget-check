@@ -23,6 +23,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
     # Only open PRs for patch-level updates; skip minor and major bumps.
     ignore:
       - dependency-name: "*"
