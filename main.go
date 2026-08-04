@@ -35,14 +35,28 @@ type contentItem struct {
 	Path string `json:"path"`
 }
 
-// normalizeRepo turns the various --repo forms scorecard accepts into "owner/repo".
-func normalizeRepo(repo string) string {
+// parseRepo extracts the git host (e.g. "github.com", "gitlab.com", "codeberg.org") and repo path ("owner/repo").
+func parseRepo(repo string) (host string, repoPath string) {
 	repo = strings.TrimSpace(repo)
 	repo = strings.TrimPrefix(repo, "https://")
 	repo = strings.TrimPrefix(repo, "http://")
-	repo = strings.TrimPrefix(repo, "github.com/")
 	repo = strings.TrimSuffix(repo, ".git")
-	return strings.Trim(repo, "/")
+	repo = strings.Trim(repo, "/")
+
+	parts := strings.Split(repo, "/")
+	if len(parts) >= 3 && strings.Contains(parts[0], ".") {
+		return parts[0], strings.Join(parts[1:], "/")
+	}
+	if len(parts) == 2 && strings.Contains(parts[0], ".") {
+		return parts[0], parts[1]
+	}
+	return "github.com", repo
+}
+
+// normalizeRepo turns the various --repo forms scorecard accepts into "owner/repo".
+func normalizeRepo(repo string) string {
+	_, repoPath := parseRepo(repo)
+	return repoPath
 }
 
 // packageIDFromPath derives "Publisher.AppName" from a manifest path like
@@ -213,8 +227,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	repo := normalizeRepo(*repoFlag)
-	query := fmt.Sprintf(`repo:microsoft/winget-pkgs "github.com/%s"`, repo)
+	host, repoPath := parseRepo(*repoFlag)
+	query := fmt.Sprintf(`repo:microsoft/winget-pkgs "%s/%s"`, host, repoPath)
 	apiURL := "https://api.github.com/search/code?q=" + url.QueryEscape(query) + "&per_page=100"
 
 	if *debugFlag {
@@ -253,12 +267,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("repo:        %s\n", repo)
+	fmt.Printf("repo:        %s/%s\n", host, repoPath)
 	fmt.Printf("query time:  %v\n", elapsed.Round(time.Millisecond))
 	fmt.Printf("manifests:   %d match(es)\n", result.TotalCount)
 
 	if result.TotalCount == 0 {
-		pkgID, ver, path, found := fallbackDirectLookup(client, token, repo, *debugFlag)
+		pkgID, ver, path, found := fallbackDirectLookup(client, token, repoPath, *debugFlag)
 		if found {
 			fmt.Printf("version:     %s (via direct tree lookup)\n", ver)
 			fmt.Printf("manifest:    %s\n", path)

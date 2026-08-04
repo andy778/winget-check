@@ -25,6 +25,28 @@ func TestNormalizeRepo(t *testing.T) {
 	}
 }
 
+func TestParseRepo(t *testing.T) {
+	tests := []struct {
+		input        string
+		expectedHost string
+		expectedPath string
+	}{
+		{"github.com/owner/repo", "github.com", "owner/repo"},
+		{"https://gitlab.com/inkscape/inkscape", "gitlab.com", "inkscape/inkscape"},
+		{"https://codeberg.org/forgejo/forgejo.git", "codeberg.org", "forgejo/forgejo"},
+		{"owner/repo", "github.com", "owner/repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			host, path := parseRepo(tt.input)
+			if host != tt.expectedHost || path != tt.expectedPath {
+				t.Errorf("parseRepo(%q) = (%q, %q); want (%q, %q)", tt.input, host, path, tt.expectedHost, tt.expectedPath)
+			}
+		})
+	}
+}
+
 func TestPackageIDFromPath(t *testing.T) {
 	tests := []struct {
 		path     string
