@@ -1,4 +1,7 @@
-# Compiled binaries
+# Compiled binaries & release artifacts
 /winget-check
-/winget-check.exe
+/winget-check-*
 *.exe
+*.spdx.json
+*.sigstore.json
+dist/
