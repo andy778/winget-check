@@ -76,24 +76,41 @@ go build -o winget-check .
 
 ## 5. Output Examples
 
-### Package Found in WinGet
+### Official CI Package (High Score - 10/10)
+
+```text
+repo:        github.com/owner/repo
+query time:  412ms
+manifests:   12 match(es)
+version:     1.0.0 (highest of 12 of 12 manifest match(es) scanned)
+manifest:    manifests/o/Owner/Repo/1.0.0/Owner.Repo.yaml
+package:     FOUND in winget as "Owner.Repo"
+workflow:    DETECTED (action match (uses: vedantmgoyal2009/winget-releaser) in release.yml)
+provenance:  OFFICIAL (score: 10/10) - Official CI automation detected (action match (uses: vedantmgoyal2009/winget-releaser) in release.yml)
+```
+
+### Third-Party / Unverified Package (Low Score - 3/10)
 
 ```text
 repo:        github.com/notepad-plus-plus/notepad-plus-plus
-query time:  412ms
-manifests:   37 match(es)
-version:     8.9.6 (highest of 37 of 37 manifest match(es) scanned)
-manifest:    manifests/n/Notepad++/Notepad++/8.9.6/Notepad++.Notepad++.installer.yaml
-result:      FOUND in winget as "Notepad++.Notepad++"
+query time:  356ms
+manifests:   0 match(es)
+version:     8.9.7 (via direct tree lookup)
+manifest:    manifests/n/Notepad++/Notepad++/8.9.7
+package:     FOUND in winget as "Notepad++.Notepad++"
+workflow:    NOT DETECTED (no WinGet release workflow pattern matched)
+provenance:  THIRD_PARTY (score: 3/10) - Package exists in winget-pkgs but no official CI release workflow was detected in source repository
 ```
 
-### Package Not Found
+### Package Not Found (Zero Score - 0/10)
 
 ```text
 repo:        github.com/some-owner/some-repo
 query time:  255ms
 manifests:   0 match(es)
-result:      NOT FOUND in winget
+package:     NOT FOUND in winget
+workflow:    NOT DETECTED (no WinGet release workflow pattern matched)
+provenance:  NOT_FOUND (score: 0/10) - No matching package found in microsoft/winget-pkgs
 ```
 
 ---
