@@ -1,0 +1,14 @@
+name: CLI WinGet Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-cli:
+    runs-on: windows-latest
+    steps:
+      - name: Install wingetcreate
+        run: choco install wingetcreate
+      - name: Submit package
+        run: wingetcreate submit --urls ${{ github.event.release.assets[0].browser_download_url }} --token ${{ secrets.WINGET_PAT }}

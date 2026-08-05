@@ -1,0 +1,15 @@
+name: Submit Package to Microsoft WinGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    steps:
+      - name: Submit manifest
+        uses: microsoft/winget-pkgs-submission-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

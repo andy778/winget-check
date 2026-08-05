@@ -1,5 +1,6 @@
 // Command winget-check takes a --repo (like scorecard) and reports whether a
-// winget package referencing that repo exists in microsoft/winget-pkgs.
+// winget package referencing that repo exists in microsoft/winget-pkgs and whether
+// it is published via official CI workflows.
 //
 // Usage:
 //
@@ -20,6 +21,9 @@ import (
 	"time"
 
 	goversion "github.com/hashicorp/go-version"
+
+	"winget-check/pkg/provenance"
+	"winget-check/pkg/workflow"
 )
 
 type codeSearchResult struct {
@@ -98,7 +102,9 @@ func fetchContents(client *http.Client, token string, apiURL string) ([]contentI
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "winget-check")
 
@@ -214,7 +220,7 @@ func fallbackDirectLookup(client *http.Client, token string, repo string, debug 
 
 func main() {
 	repoFlag := flag.String("repo", "", "repository to check, e.g. github.com/owner/repo")
-	debugFlag := flag.Bool("debug", false, "print the search query and request URL to stderr")
+	debugFlag := flag.Bool("debug", false, "print search queries and API request details to stderr")
 	flag.Parse()
 
 	if *repoFlag == "" {
@@ -228,6 +234,22 @@ func main() {
 	}
 
 	host, repoPath := parseRepo(*repoFlag)
+	parts := strings.Split(repoPath, "/")
+	if len(parts) < 2 {
+		fmt.Fprintf(os.Stderr, "error: invalid repo format %q, expected owner/repo\n", repoPath)
+		os.Exit(2)
+	}
+	owner, repoName := parts[0], parts[1]
+
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	// PR 1: Detect WinGet publishing workflows in target repository
+	wfDetected, wfDetail, err := workflow.DetectWinGetWorkflow(client, token, owner, repoName, *debugFlag)
+	if err != nil && *debugFlag {
+		fmt.Fprintf(os.Stderr, "debug: workflow check error: %v\n", err)
+	}
+
+	// Search microsoft/winget-pkgs for package manifest
 	query := fmt.Sprintf(`repo:microsoft/winget-pkgs "%s/%s"`, host, repoPath)
 	apiURL := "https://api.github.com/search/code?q=" + url.QueryEscape(query) + "&per_page=100"
 
@@ -245,7 +267,6 @@ func main() {
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "winget-check")
 
-	client := &http.Client{Timeout: 15 * time.Second}
 	start := time.Now()
 	resp, err := client.Do(req)
 	elapsed := time.Since(start)
@@ -271,41 +292,61 @@ func main() {
 	fmt.Printf("query time:  %v\n", elapsed.Round(time.Millisecond))
 	fmt.Printf("manifests:   %d match(es)\n", result.TotalCount)
 
+	pkgFound := false
+	pkgID := ""
+	bestPath := ""
+	versionStr := ""
+
 	if result.TotalCount == 0 {
-		pkgID, ver, path, found := fallbackDirectLookup(client, token, repoPath, *debugFlag)
+		fallbackPkgID, ver, path, found := fallbackDirectLookup(client, token, repoPath, *debugFlag)
 		if found {
-			fmt.Printf("version:     %s (via direct tree lookup)\n", ver)
-			fmt.Printf("manifest:    %s\n", path)
-			fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
-			return
+			pkgFound = true
+			pkgID = fallbackPkgID
+			bestPath = path
+			versionStr = fmt.Sprintf("%s (via direct tree lookup)", ver)
 		}
-		fmt.Println("result:      NOT FOUND in winget")
-		return
-	}
-
-	bestPath := result.Items[0].Path
-	pkgID := packageIDFromPath(bestPath)
-	var bestVer *goversion.Version
-	if pkgID != "" {
-		for _, it := range result.Items {
-			if packageIDFromPath(it.Path) != pkgID {
-				continue
-			}
-			v, err := goversion.NewVersion(versionFromPath(it.Path))
-			if err != nil {
-				continue
-			}
-			if bestVer == nil || v.GreaterThan(bestVer) {
-				bestVer, bestPath = v, it.Path
-			}
-		}
-	}
-
-	if bestVer != nil {
-		fmt.Printf("version:     %s (highest of %d of %d manifest match(es) scanned)\n", bestVer.Original(), len(result.Items), result.TotalCount)
 	} else {
-		fmt.Printf("version:     unknown (no parseable version among %d of %d manifest match(es) scanned)\n", len(result.Items), result.TotalCount)
+		pkgFound = true
+		bestPath = result.Items[0].Path
+		pkgID = packageIDFromPath(bestPath)
+		var bestVer *goversion.Version
+		if pkgID != "" {
+			for _, it := range result.Items {
+				if packageIDFromPath(it.Path) != pkgID {
+					continue
+				}
+				v, err := goversion.NewVersion(versionFromPath(it.Path))
+				if err != nil {
+					continue
+				}
+				if bestVer == nil || v.GreaterThan(bestVer) {
+					bestVer, bestPath = v, it.Path
+				}
+			}
+		}
+		if bestVer != nil {
+			versionStr = fmt.Sprintf("%s (highest of %d of %d manifest match(es) scanned)", bestVer.Original(), len(result.Items), result.TotalCount)
+		} else {
+			versionStr = fmt.Sprintf("unknown (no parseable version among %d of %d manifest match(es) scanned)", len(result.Items), result.TotalCount)
+		}
 	}
-	fmt.Printf("manifest:    %s\n", bestPath)
-	fmt.Printf("result:      FOUND in winget as %q\n", pkgID)
+
+	// PR 2: Classify Package Origin (Official vs 3rd-Party)
+	classRes := provenance.ClassifyPackageOrigin(pkgFound, wfDetected, wfDetail)
+
+	if pkgFound {
+		fmt.Printf("version:     %s\n", versionStr)
+		fmt.Printf("manifest:    %s\n", bestPath)
+		fmt.Printf("package:     FOUND in winget as %q\n", pkgID)
+	} else {
+		fmt.Println("package:     NOT FOUND in winget")
+	}
+
+	if wfDetected {
+		fmt.Printf("workflow:    DETECTED (%s)\n", wfDetail)
+	} else {
+		fmt.Printf("workflow:    NOT DETECTED (%s)\n", wfDetail)
+	}
+
+	fmt.Printf("provenance:  %s (score: %d/10) - %s\n", classRes.Origin, classRes.Score, classRes.Description)
 }

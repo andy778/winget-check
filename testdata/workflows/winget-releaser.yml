@@ -1,0 +1,16 @@
+name: Release WinGet Package
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to WinGet
+        uses: vedantmgoyal2009/winget-releaser@v1
+        with:
+          identifier: Publisher.AppName
+          token: ${{ secrets.WINGET_TOKEN }}

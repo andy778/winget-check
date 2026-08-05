@@ -1,88 +1,85 @@
 # winget-check
 
-This is a proof of concept, built to test whether "does a winget package exist
-for this repo" is worth proposing as a check/probe in
-[OpenSSF Scorecard](https://github.com/ossf/scorecard) itself, rather than a
-standalone tool. Its own Scorecard score and CI setup double as a testbed for
-that.
+> **Proof of Concept Notice**  
+> This repository is a Proof of Concept (PoC) for proposing a **WinGet** packaging extension to the official [OpenSSF Scorecard Packaging Check](https://github.com/ossf/scorecard/blob/main/docs/checks.md#packaging).
+>
+> The goal is to quickly and reliably evaluate whether a project distributes official Windows packages via the official Windows Package Manager repository (`microsoft/winget-pkgs`) directly from its own automated build pipelines.
 
-A small command-line tool that takes a repository (the same `--repo` form
-[OpenSSF Scorecard](https://github.com/ossf/scorecard) accepts) and reports
-whether a [winget](https://github.com/microsoft/winget-pkgs) package referencing
-that repo exists in `microsoft/winget-pkgs`.
+---
 
-It works by running a GitHub [code search](https://docs.github.com/en/rest/search/search#search-code)
-against the `microsoft/winget-pkgs` repository for manifests that mention the
-given GitHub repo URL, then derives the winget package ID (`Publisher.AppName`)
-from the manifest path.
+## 1. Rationale & Risk Assessment
 
-## Requirements
+Distributing software packages through official package managers improves supply chain security by reducing reliance on unverified third-party binaries or manual installer downloads. 
 
-- [Go](https://go.dev/dl/) 1.21 or newer
-- A GitHub personal access token (a classic or fine-grained token with public
-  read access is enough — code search requires authentication)
+For Windows environments, [Windows Package Manager (winget)](https://github.com/microsoft/winget-pkgs) is the primary native package repository. However, a package listed in `winget-pkgs` may be created and updated in two distinct ways:
+1. **Official CI/CD Automation:** The project's official repository runs a GitHub Action (or CI workflow) on release to automatically generate and publish WinGet manifests. This provides a direct, verifiable link between source code releases and package availability.
+2. **Third-Party / Community Submissions:** A third party or automated community bot (e.g., `Komac`) submits a manifest to `winget-pkgs`. While functional, these packages lack direct, verifiable build provenance connecting their publication back to the project's own repository and maintainers.
 
-## Setup
+Evaluating both the presence of a WinGet package and its connection to the project's release pipeline provides a clearer signal of packaging security and maintainability.
 
-Set your token in the `GITHUB_AUTH_TOKEN` environment variable:
+---
 
-```bash
-# bash / zsh
-export GITHUB_AUTH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-```
+## 2. Scoring Criteria
 
-```powershell
-# PowerShell
-$env:GITHUB_AUTH_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxx"
-```
+When evaluated against a target repository (e.g. `--repo=github.com/owner/repo`), the check applies the following qualitative scoring tiers:
 
-## Usage
+| Tier | Score Level | Description & Criteria |
+| :--- | :--- | :--- |
+| **High Score** | **Official CI Publishing** | A WinGet package exists in `microsoft/winget-pkgs` **and** the project automatically builds/publishes package manifests directly from its own repository workflows (e.g., via GitHub Actions). |
+| **Low Score** | **Unverified / Third-Party Package** | A WinGet package referencing the project exists in `microsoft/winget-pkgs`, but there is **no verifiable connection** to the project's repository or automated workflows (e.g., community-maintained or unverified third-party bot submissions). |
+| **Zero Score** | **Package Not Found** | No matching WinGet package or manifest referencing the repository URL exists in `microsoft/winget-pkgs`. |
 
-Run directly with `go run`:
+### Edge Cases & Scoring Nuances
 
-```bash
-go run main.go --repo=github.com/notepad-plus-plus/notepad-plus-plus
-```
+- **Non-GitHub CI Pipelines (Azure DevOps, GitLab CI, AppVeyor):** If a project uses external CI rather than GitHub Actions, the check falls back to verifying commit/PR author provenance in `microsoft/winget-pkgs` for maintainer signatures or authorized release tokens.
+- **Automated Community Bots:** Submissions by community update bots (such as `Komac`) receive a **Low Score** unless the source repository actively runs an official workflow integration, as third-party bot updates lack cryptographic or workflow provenance from the source project.
 
-The `--repo` flag accepts the various forms Scorecard understands, for example:
+---
 
-- `github.com/owner/repo`
-- `https://github.com/owner/repo`
-- `owner/repo`
-- a trailing `.git` or `/` is tolerated
+## 3. Technical Implementation & Probing Signals
 
-Add `--debug` to print the full code-search query and request URL to stderr
-before the request is made:
+### Current PoC CLI Capabilities
+The `winget-check` tool probes `microsoft/winget-pkgs` using the GitHub API:
+- **Code Search Query:** Queries `repo:microsoft/winget-pkgs "<host>/<owner>/<repo>"` via the GitHub Search API to identify manifests pointing to the project repository.
+- **Direct Tree Fallback:** If code search returns 0 results or encounters index delays, the tool derives candidate publisher and app directory names from the repository's `owner` and `repo` names (e.g., inspecting `manifests/<letter>/<Owner>/<Repo>/`) via the GitHub REST Contents API.
+- **Package & Version Parsing:** Extracts `Publisher.AppName` and finds the highest semantic version available across matched installer manifests.
 
-```bash
-go run main.go --repo=github.com/notepad-plus-plus/notepad-plus-plus --debug
-```
+### Proposed OpenSSF Scorecard Detection Heuristics
+To distinguish between **High Score** (Official CI) and **Low Score** (Unverified/Third-Party), the proposed Scorecard probe evaluates the following signals:
 
-```
-debug: query: repo:microsoft/winget-pkgs "github.com/notepad-plus-plus/notepad-plus-plus"
-debug: url:   https://api.github.com/search/code?q=repo%3Amicrosoft%2Fwinget-pkgs+%22github.com%2Fnotepad-plus-plus%2Fnotepad-plus-plus%22
-```
+1. **Workflow Analysis in Source Repo:**
+   - Scans `.github/workflows/*.yml` in the project repository for recognized WinGet publishing actions (such as `vedantmgoyal2009/winget-releaser`, `microsoft/winget-pkgs-submission-action`, or custom `wingetcreate` steps).
+2. **Manifest & Commit Provenance in `winget-pkgs`:**
+   - Verifies whether manifest update pull requests/commits in `microsoft/winget-pkgs` originate from an authorized bot/token associated with the project's release pipeline or maintainer accounts.
 
-### Build a binary
+### Production Considerations for Scorecard Integration
+- **Search API Rate Limits:** GitHub's Code Search API has strict rate limits (30 requests/minute for authenticated users). For integration into the core OpenSSF Scorecard engine, the probe can use GitHub REST/GraphQL tree queries, pre-indexed WinGet package datasets, or local SQLite index caches rather than live search queries.
+
+---
+
+## 4. Building & Running
+
+**Prerequisites:** Go 1.21+ and `export GITHUB_AUTH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx`
 
 ```bash
+# Build binary
 go build -o winget-check .
+
+# Run check (--repo accepts owner/repo, github.com/owner/repo, or full HTTPS URL)
 ./winget-check --repo=github.com/notepad-plus-plus/notepad-plus-plus
+
+# Add --debug to inspect API queries
+./winget-check --repo=github.com/notepad-plus-plus/notepad-plus-plus --debug
 ```
 
-On Windows the binary is `winget-check.exe`:
+---
 
-```powershell
-go build -o winget-check.exe .
-.\winget-check.exe --repo=github.com/notepad-plus-plus/notepad-plus-plus
-```
+## 5. Output Examples
 
-## Output
+### Package Found in WinGet
 
-A package that exists in winget:
-
-```
-repo:        notepad-plus-plus/notepad-plus-plus
+```text
+repo:        github.com/notepad-plus-plus/notepad-plus-plus
 query time:  412ms
 manifests:   37 match(es)
 version:     8.9.6 (highest of 37 of 37 manifest match(es) scanned)
@@ -90,57 +87,46 @@ manifest:    manifests/n/Notepad++/Notepad++/8.9.6/Notepad++.Notepad++.installer
 result:      FOUND in winget as "Notepad++.Notepad++"
 ```
 
-The `version:` line is the highest version parsed from the manifests that
-belong to the same winget package ID as the most relevant match, and
-`manifest:` is that version's manifest. Note GitHub code search returns up to
-100 results per query, so on packages with a very large number of manifests
-the "highest" is only scanned from the first 100 matches - the two numbers in
-the `version:` line show how many of the total matches were actually scanned.
-If none of the scanned manifests have a parseable version, the line reads
-`version:     unknown (...)` instead.
+### Package Not Found
 
-A package that is not in winget:
-
-```
-repo:        some-owner/some-repo
+```text
+repo:        github.com/some-owner/some-repo
 query time:  255ms
 manifests:   0 match(es)
 result:      NOT FOUND in winget
 ```
 
-## Security scanning
+---
 
-[OpenSSF Scorecard](.github/workflows/scorecard.yml) and
-[CodeQL](.github/workflows/codeql.yml) run on every push to `main` and on
-pull requests, but results aren't published to the public OpenSSF dataset
-(`publish_results: false`). Check them in this repo instead:
+## 6. Security Scanning & Releases
 
-- **Security tab** → [Code scanning alerts](../../security/code-scanning)
-- **Actions tab** → a `scorecard.yml` run's `results.sarif` artifact
-- Or run Scorecard yourself: `scorecard --repo=github.com/andy778/winget-check`
+### Security Scanning
+[OpenSSF Scorecard](.github/workflows/scorecard.yml) and [CodeQL](.github/workflows/codeql.yml) run automatically on repository pushes and pull requests.
+- View scanning alerts in the **Security** tab → **Code scanning alerts**.
+- Or run Scorecard locally:
+  ```bash
+  scorecard --repo=github.com/andy778/winget-check
+  ```
 
-## Releases
+### Release Pipeline & Attestations
+Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers `.github/workflows/release.yml`, which cross-compiles binaries and attaches SLSA provenance attestations.
 
-Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers a
-[release workflow](.github/workflows/release.yml) that cross-compiles binaries
-for Linux, macOS (amd64/arm64) and Windows, exports an SBOM
-(`winget-check.spdx.json`) from GitHub's native
-[dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository),
-generates a [SLSA build provenance attestation](https://github.com/actions/attest-build-provenance)
-(`winget-check.sigstore.json`) covering the binaries and SBOM, and publishes
-everything together as a GitHub Release. Verify a release with:
-
+Verify release binaries with GitHub CLI:
 ```bash
 gh attestation verify winget-check-linux-amd64 --owner andy778
 ```
 
-## Exit codes
+---
 
-| Code | Meaning                                                        |
-| ---- | ------------------------------------------------------------- |
-| `0`  | Ran successfully (whether or not the package was found)        |
-| `1`  | Runtime error (request failed, non-200 API response, bad JSON) |
-| `2`  | Usage error (missing `--repo` or missing `GITHUB_AUTH_TOKEN`)  |
+## 7. Exit Codes
+
+| Code | Meaning |
+| :--- | :--- |
+| `0` | Ran successfully (whether or not the package was found) |
+| `1` | Runtime error (API request failure, non-200 response, JSON parse error) |
+| `2` | Usage error (missing `--repo` or missing `GITHUB_AUTH_TOKEN`) |
+
+---
 
 ## License
 
