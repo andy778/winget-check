@@ -21,7 +21,7 @@ Evaluating both the presence of a WinGet package and its connection to the proje
 
 ## 2. Scoring Criteria
 
-When evaluated against a target repository (e.g. `--repo=github.com/owner/repo`), the check applies the following qualitative scoring tiers:
+When evaluated against a target repository (e.g. `--repo=github.com/notepad-plus-plus/notepad-plus-plus`), the check applies the following qualitative scoring tiers:
 
 | Tier | Score Level | Description & Criteria |
 | :--- | :--- | :--- |
@@ -41,7 +41,7 @@ When evaluated against a target repository (e.g. `--repo=github.com/owner/repo`)
 ### Current PoC CLI Capabilities
 The `winget-check` tool probes `microsoft/winget-pkgs` using the GitHub API:
 - **Code Search Query:** Queries `repo:microsoft/winget-pkgs "<host>/<owner>/<repo>"` via the GitHub Search API to identify manifests pointing to the project repository.
-- **Direct Tree Fallback:** If code search returns 0 results or encounters index delays, the tool derives candidate publisher and app directory names from the repository's `owner` and `repo` names (e.g., inspecting `manifests/<letter>/<Owner>/<Repo>/`) via the GitHub REST Contents API.
+- **Direct Tree Fallback:** If code search returns 0 results or encounters index delays, the tool derives candidate publisher and app directory names from the repository's `owner` and `repo` names (e.g., inspecting `manifests/<letter>/<Publisher>/<App>/`) via the GitHub REST Contents API.
 - **Package & Version Parsing:** Extracts `Publisher.AppName` and finds the highest semantic version available across matched installer manifests.
 
 ### Proposed OpenSSF Scorecard Detection Heuristics
@@ -79,12 +79,12 @@ go build -o winget-check .
 ### Official CI Package (High Score - 10/10)
 
 ```text
-repo:        github.com/owner/repo
+repo:        github.com/JanDeDobbeleer/oh-my-posh
 query time:  412ms
 manifests:   12 match(es)
-version:     1.0.0 (highest of 12 of 12 manifest match(es) scanned)
-manifest:    manifests/o/Owner/Repo/1.0.0/Owner.Repo.yaml
-package:     FOUND in winget as "Owner.Repo"
+version:     24.24.1 (highest of 12 of 12 manifest match(es) scanned)
+manifest:    manifests/j/JanDeDobbeleer/OhMyPosh/24.24.1/JanDeDobbeleer.OhMyPosh.yaml
+package:     FOUND in winget as "JanDeDobbeleer.OhMyPosh"
 workflow:    DETECTED (action match (uses: vedantmgoyal2009/winget-releaser) in release.yml)
 provenance:  OFFICIAL (score: 10/10) - Official CI automation detected (action match (uses: vedantmgoyal2009/winget-releaser) in release.yml)
 ```
@@ -105,7 +105,7 @@ provenance:  THIRD_PARTY (score: 3/10) - Package exists in winget-pkgs but no of
 ### Package Not Found (Zero Score - 0/10)
 
 ```text
-repo:        github.com/some-owner/some-repo
+repo:        github.com/gorilla/mux
 query time:  255ms
 manifests:   0 match(es)
 package:     NOT FOUND in winget
